@@ -76,4 +76,11 @@ public interface FootballClient {
             @HeaderParam("X-Auth-Token") String token,
             @PathParam("id") int matchId
     );
+
+    @GET
+    @Path("/competitions/{id}/teams")
+    TeamResponse getCompetitionTeams(
+            @HeaderParam("X-Auth-Token") String token,
+            @PathParam("id") String competitionId
+    );
 }
