@@ -381,11 +381,11 @@
         try {
             const res = await fetch('/api/football/teams/search?name=' + encodeURIComponent(name));
             const data = await res.json();
-            if (!data.teams || data.teams.length === 0) {
+            if (!data || data.length === 0) {
                 document.getElementById('search-content').innerHTML = '<div class="empty">Kein Team gefunden</div>';
                 return;
             }
-            document.getElementById('search-content').innerHTML = data.teams.map(t => `
+            document.getElementById('search-content').innerHTML = data.map(t => `
                 <div class="team-card" onclick="openTeam(${t.id}, '${t.name.replace(/'/g, "\\'")}')">
                     <img class="team-crest-big" src="${t.crest}" onerror="this.style.display='none'"/>
                     <div class="team-info">

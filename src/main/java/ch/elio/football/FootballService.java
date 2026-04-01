@@ -36,34 +36,38 @@ public class FootballService {
     }
 
     public List<TeamResponse.Team> searchTeams(String query) {
+        // Direkt alle Teams laden und lokal filtern
+        TeamResponse allTeams;
         try {
-            TeamResponse response = footballClient.searchTeams(apiKey, query);
-            if (response.teams != null && !response.teams.isEmpty()) {
-                return response.teams;
-            }
+            allTeams = footballClient.searchTeams(apiKey, "");
         } catch (Exception e) {
-            // Falls API nichts findet, weiter zur Fuzzy-Suche
+            return List.of();
         }
 
-        TeamResponse allTeams = footballClient.searchTeams(apiKey, "");
         if (allTeams.teams == null) return List.of();
+
+        String queryLower = query.toLowerCase().trim();
 
         return allTeams.teams.stream()
                 .filter(t -> {
-                    double sim = fuzzySearch.similarity(query, t.name);
-                    double simShort = t.shortName != null
-                            ? fuzzySearch.similarity(query, t.shortName)
-                            : 0.0;
-                    return Math.max(sim, simShort) >= 0.4;
+                    String nameLower = t.name.toLowerCase();
+                    String shortLower = t.shortName != null ? t.shortName.toLowerCase() : "";
+
+                    if (nameLower.startsWith(queryLower) || shortLower.startsWith(queryLower)) return true;
+                    if (nameLower.contains(queryLower) || shortLower.contains(queryLower)) return true;
+
+                    double sim = fuzzySearch.similarity(queryLower, nameLower);
+                    double simShort = fuzzySearch.similarity(queryLower, shortLower);
+                    return Math.max(sim, simShort) >= 0.3;
                 })
                 .sorted((a, b) -> {
                     double simA = Math.max(
-                            fuzzySearch.similarity(query, a.name),
-                            a.shortName != null ? fuzzySearch.similarity(query, a.shortName) : 0.0
+                            fuzzySearch.similarity(queryLower, a.name.toLowerCase()),
+                            a.shortName != null ? fuzzySearch.similarity(queryLower, a.shortName.toLowerCase()) : 0.0
                     );
                     double simB = Math.max(
-                            fuzzySearch.similarity(query, b.name),
-                            b.shortName != null ? fuzzySearch.similarity(query, b.shortName) : 0.0
+                            fuzzySearch.similarity(queryLower, b.name.toLowerCase()),
+                            b.shortName != null ? fuzzySearch.similarity(queryLower, b.shortName.toLowerCase()) : 0.0
                     );
                     return Double.compare(simB, simA);
                 })
