@@ -13,6 +13,8 @@ import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 
 import java.text.Normalizer;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -33,6 +35,7 @@ public class FootballService {
 
     private static final List<String> SEARCH_COMPETITIONS = List.of("PL", "BL1", "SA", "PD", "FL1", "CL");
     private static final long SEARCH_POOL_TTL_MS = 5L * 60 * 1000;
+    private static final ZoneId APP_ZONE = ZoneId.of("Europe/Zurich");
 
     private final Object searchPoolLock = new Object();
     private final AtomicReference<List<TeamResponse.Team>> cachedCompetitionTeams = new AtomicReference<>(List.of());
@@ -46,7 +49,8 @@ public class FootballService {
 
     public List<Match> getLiveMatches() {
         try {
-            return footballClient.getMatches(apiKey, "IN_PLAY").matches;
+            MatchResponse response = footballClient.getMatches(apiKey, "LIVE");
+            return sortMatchesByKickoff(response != null ? response.matches : List.of());
         } catch (Exception e) {
             return List.of();
         }
@@ -54,12 +58,12 @@ public class FootballService {
 
     public List<Match> getTodayMatches() {
         try {
-            MatchResponse scheduled = footballClient.getMatches(apiKey, "SCHEDULED");
-            MatchResponse timed = footballClient.getMatches(apiKey, "TIMED");
-            List<Match> result = new ArrayList<>();
-            if (scheduled.matches != null) result.addAll(scheduled.matches);
-            if (timed.matches != null) result.addAll(timed.matches);
-            return result;
+            LocalDate today = LocalDate.now(APP_ZONE);
+            String dateFrom = today.toString();
+            String dateTo = today.plusDays(1).toString(); // wichtig: dateTo ist exklusiv
+
+            MatchResponse response = footballClient.getMatchesByDate(apiKey, dateFrom, dateTo);
+            return sortMatchesByKickoff(response != null ? response.matches : List.of());
         } catch (Exception e) {
             return List.of();
         }
@@ -68,7 +72,8 @@ public class FootballService {
     @CacheResult(cacheName = "standings-cache")
     public StandingsResponse getStandings(String competitionId) {
         try {
-            return footballClient.getStandings(apiKey, competitionId);
+            StandingsResponse response = footballClient.getStandings(apiKey, competitionId);
+            return response != null ? response : new StandingsResponse();
         } catch (Exception e) {
             return new StandingsResponse();
         }
@@ -77,7 +82,8 @@ public class FootballService {
     @CacheResult(cacheName = "scorers-cache")
     public ScorersResponse getScorers(String competitionId) {
         try {
-            return footballClient.getScorers(apiKey, competitionId, 10);
+            ScorersResponse response = footballClient.getScorers(apiKey, competitionId, 10);
+            return response != null ? response : new ScorersResponse();
         } catch (Exception e) {
             return new ScorersResponse();
         }
@@ -86,7 +92,8 @@ public class FootballService {
     @CacheResult(cacheName = "matchday-cache")
     public List<Match> getMatchdayMatches(String competitionId, int matchday) {
         try {
-            return footballClient.getCompetitionMatches(apiKey, competitionId, matchday, null).matches;
+            MatchResponse response = footballClient.getCompetitionMatches(apiKey, competitionId, matchday, null);
+            return sortMatchesByKickoff(response != null ? response.matches : List.of());
         } catch (Exception e) {
             return List.of();
         }
@@ -100,7 +107,6 @@ public class FootballService {
         String queryNormalized = normalize(query);
         Map<Integer, TeamResponse.Team> apiCandidates = new LinkedHashMap<>();
 
-        // Primarweg: direkte API-Suche
         try {
             TeamResponse response = footballClient.searchTeams(apiKey, query.trim());
             if (response != null && response.teams != null) {
@@ -111,7 +117,6 @@ public class FootballService {
                 }
             }
         } catch (Exception ignored) {
-            // Bei API-Problemen nutzen wir den gecachten Wettbewerbs-Pool.
         }
 
         List<ScoredTeam> scoredApi = scoreTeams(apiCandidates.values(), queryNormalized);
@@ -121,7 +126,6 @@ public class FootballService {
                 .map(t -> t.team)
                 .toList();
 
-        // Wenn API bereits gute Treffer liefert, keine breite Pool-Mischung erzwingen.
         if (strongApi.size() >= 3) {
             return strongApi;
         }
@@ -144,6 +148,31 @@ public class FootballService {
                 .limit(10)
                 .map(t -> t.team)
                 .toList();
+    }
+
+    public TeamDetailResponse getTeamDetail(int teamId) {
+        try {
+            return footballClient.getTeamDetail(apiKey, teamId);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public List<Match> getTeamMatches(int teamId, String status) {
+        try {
+            MatchResponse response = footballClient.getTeamMatches(apiKey, teamId, status, 10);
+            return sortMatchesByKickoff(response != null ? response.matches : List.of());
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    public Match getMatchDetail(int matchId) {
+        try {
+            return footballClient.getMatch(apiKey, matchId);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     private List<ScoredTeam> scoreTeams(Iterable<TeamResponse.Team> teams, String queryNormalized) {
@@ -209,16 +238,6 @@ public class FootballService {
         return false;
     }
 
-    private static final class ScoredTeam {
-        private final TeamResponse.Team team;
-        private final double score;
-
-        private ScoredTeam(TeamResponse.Team team, double score) {
-            this.team = team;
-            this.score = score;
-        }
-    }
-
     private List<TeamResponse.Team> loadCompetitionTeamsPoolCached() {
         long now = System.currentTimeMillis();
         List<TeamResponse.Team> snapshot = cachedCompetitionTeams.get();
@@ -258,13 +277,22 @@ public class FootballService {
                     }
                 }
             } catch (Exception ignored) {
-                // Einzelne Liga kann fehlschlagen; vorhandene Ergebnisse bleiben nutzbar.
             }
         }
 
         return new ArrayList<>(uniqueTeams.values());
     }
 
+    private List<Match> sortMatchesByKickoff(List<Match> matches) {
+        if (matches == null || matches.isEmpty()) {
+            return List.of();
+        }
+
+        return matches.stream()
+                .filter(m -> m != null)
+                .sorted(Comparator.comparing(m -> m.utcDate == null ? "" : m.utcDate))
+                .toList();
+    }
 
     private String normalize(String value) {
         if (value == null) {
@@ -283,27 +311,13 @@ public class FootballService {
                 .replaceAll("\\s+", " ");
     }
 
-    public TeamDetailResponse getTeamDetail(int teamId) {
-        try {
-            return footballClient.getTeamDetail(apiKey, teamId);
-        } catch (Exception e) {
-            return null;
-        }
-    }
+    private static final class ScoredTeam {
+        private final TeamResponse.Team team;
+        private final double score;
 
-    public List<Match> getTeamMatches(int teamId, String status) {
-        try {
-            return footballClient.getTeamMatches(apiKey, teamId, status, 10).matches;
-        } catch (Exception e) {
-            return List.of();
-        }
-    }
-
-    public Match getMatchDetail(int matchId) {
-        try {
-            return footballClient.getMatch(apiKey, matchId);
-        } catch (Exception e) {
-            return null;
+        private ScoredTeam(TeamResponse.Team team, double score) {
+            this.team = team;
+            this.score = score;
         }
     }
 }

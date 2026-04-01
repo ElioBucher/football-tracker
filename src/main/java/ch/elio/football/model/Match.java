@@ -1,5 +1,6 @@
 package ch.elio.football.model;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import java.util.List;
 
@@ -28,16 +29,25 @@ public class Match {
         public String winner;
         public FullTime fullTime;
         public HalfTime halfTime;
+        public FullTime regularTime;
+        public FullTime extraTime;
+        public FullTime penalties;
 
         @JsonIgnoreProperties(ignoreUnknown = true)
         public static class FullTime {
+            @JsonAlias({"homeTeam", "home"})
             public Integer home;
+
+            @JsonAlias({"awayTeam", "away"})
             public Integer away;
         }
 
         @JsonIgnoreProperties(ignoreUnknown = true)
         public static class HalfTime {
+            @JsonAlias({"homeTeam", "home"})
             public Integer home;
+
+            @JsonAlias({"awayTeam", "away"})
             public Integer away;
         }
     }

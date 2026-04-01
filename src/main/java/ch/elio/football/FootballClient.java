@@ -24,6 +24,14 @@ public interface FootballClient {
     );
 
     @GET
+    @Path("/matches")
+    MatchResponse getMatchesByDate(
+            @HeaderParam("X-Auth-Token") String token,
+            @QueryParam("dateFrom") String dateFrom,
+            @QueryParam("dateTo") String dateTo
+    );
+
+    @GET
     @Path("/competitions/{id}/standings")
     StandingsResponse getStandings(
             @HeaderParam("X-Auth-Token") String token,
