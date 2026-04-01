@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Football Tracker</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #0d0d0d;
+            color: #fff;
+            min-height: 100vh;
+        }
+
+        /* NAV */
+        nav {
+            background: #111;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 2px solid #00d4ff;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .logo { font-size: 22px; font-weight: bold; color: #00d4ff; }
+        .nav-links { display: flex; gap: 8px; }
+        .nav-btn {
+            background: transparent;
+            border: 1px solid #333;
+            color: #aaa;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        .nav-btn:hover, .nav-btn.active {
+            background: #00d4ff;
+            color: #000;
+            border-color: #00d4ff;
+            font-weight: bold;
+        }
+
+        /* MAIN */
+        .container { max-width: 900px; margin: 0 auto; padding: 24px 16px; }
+
+        /* SEARCH */
+        .search-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+        .search-bar input {
+            flex: 1;
+            padding: 12px 18px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 25px;
+            color: #fff;
+            font-size: 15px;
+            outline: none;
+            transition: border 0.2s;
+        }
+        .search-bar input:focus { border-color: #00d4ff; }
+        .search-bar button {
+            padding: 12px 24px;
+            background: #00d4ff;
+            color: #000;
+            border: none;
+            border-radius: 25px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: 15px;
+        }
+        .search-bar button:hover { background: #00b8d9; }
+
+        /* LIGA PILLS */
+        .liga-pills {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+        .pill {
+            padding: 6px 16px;
+            border-radius: 20px;
+            border: 1px solid #333;
+            background: #1a1a1a;
+            color: #aaa;
+            cursor: pointer;
+            font-size: 13px;
+            transition: all 0.2s;
+        }
+        .pill:hover, .pill.active {
+            background: #00d4ff;
+            color: #000;
+            border-color: #00d4ff;
+            font-weight: bold;
+        }
+
+        /* MATCH CARD */
+        .match-card {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 18px 20px;
+            margin-bottom: 10px;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr;
+            align-items: center;
+            gap: 12px;
+            transition: background 0.2s;
+            cursor: pointer;
+        }
+        .match-card:hover { background: #222; }
+        .team-name { font-size: 15px; font-weight: 600; }
+        .team-home { text-align: right; }
+        .team-away { text-align: left; }
+        .score-box {
+            text-align: center;
+            min-width: 80px;
+        }
+        .score { font-size: 24px; font-weight: bold; color: #00d4ff; }
+        .match-status {
+            font-size: 11px;
+            color: #aaa;
+            margin-top: 4px;
+        }
+        .live-badge {
+            display: inline-block;
+            background: #ff3b3b;
+            color: #fff;
+            font-size: 10px;
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 10px;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* STANDINGS TABLE */
+        .standings-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .standings-table th {
+            text-align: left;
+            color: #aaa;
+            padding: 10px 12px;
+            border-bottom: 1px solid #222;
+            font-weight: 500;
+        }
+        .standings-table td {
+            padding: 12px;
+            border-bottom: 1px solid #1a1a1a;
+        }
+        .standings-table tr:hover td { background: #1a1a1a; }
+        .pos { color: #aaa; width: 30px; }
+        .team-crest { width: 20px; height: 20px; object-fit: contain; margin-right: 8px; vertical-align: middle; }
+        .points { font-weight: bold; color: #00d4ff; }
+
+        /* TEAM CARD */
+        .team-card {
+            background: #1a1a1a;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .team-card:hover { background: #222; }
+        .team-crest-big { width: 48px; height: 48px; object-fit: contain; }
+        .team-info h3 { font-size: 16px; margin-bottom: 4px; }
+        .team-info p { font-size: 13px; color: #aaa; }
+
+        /* SECTION TITLE */
+        .section-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 16px;
+            color: #fff;
+        }
+
+        /* STATES */
+        .loading { text-align: center; padding: 40px; color: #aaa; }
+        .empty { text-align: center; padding: 40px; color: #555; font-size: 15px; }
+        .page { display: none; }
+        .page.active { display: block; }
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="logo">⚽ Football Tracker</div>
+    <div class="nav-links">
+        <button class="nav-btn active" onclick="showPage('live')">🔴 Live</button>
+        <button class="nav-btn" onclick="showPage('today')">📅 Heute</button>
+        <button class="nav-btn" onclick="showPage('standings')">📊 Tabelle</button>
+        <button class="nav-btn" onclick="showPage('search')">🔍 Suche</button>
+    </div>
+</nav>
+
+<div class="container">
+
+    <!-- LIVE PAGE -->
+    <div id="page-live" class="page active">
+        <div class="section-title">🔴 Live Spiele</div>
+        <div id="live-content"><div class="loading">Lade Live Spiele...</div></div>
+    </div>
+
+    <!-- TODAY PAGE -->
+    <div id="page-today" class="page">
+        <div class="section-title">📅 Heutige Spiele</div>
+        <div id="today-content"><div class="loading">Lade heutige Spiele...</div></div>
+    </div>
+
+    <!-- STANDINGS PAGE -->
+    <div id="page-standings" class="page">
+        <div class="section-title">📊 Liga-Tabellen</div>
+        <div class="liga-pills">
+            <div class="pill active" onclick="loadStandings('PL', this)">🏴󠁧󠁢󠁥󠁮󠁧󠁿 Premier League</div>
+            <div class="pill" onclick="loadStandings('BL1', this)">🇩🇪 Bundesliga</div>
+            <div class="pill" onclick="loadStandings('SA', this)">🇮🇹 Serie A</div>
+            <div class="pill" onclick="loadStandings('PD', this)">🇪🇸 La Liga</div>
+            <div class="pill" onclick="loadStandings('FL1', this)">🇫🇷 Ligue 1</div>
+            <div class="pill" onclick="loadStandings('CL', this)">🏆 Champions League</div>
+        </div>
+        <div id="standings-content"><div class="loading">Lade Tabelle...</div></div>
+    </div>
+
+    <!-- SEARCH PAGE -->
+    <div id="page-search" class="page">
+        <div class="section-title">🔍 Team suchen</div>
+        <div class="search-bar">
+            <input type="text" id="search-input" placeholder="z.B. Bayern, Arsenal, Barcelona..." onkeydown="if(event.key==='Enter') searchTeam()"/>
+            <button onclick="searchTeam()">Suchen</button>
+        </div>
+        <div id="search-content"></div>
+    </div>
+
+    <!-- TEAM MATCHES PAGE -->
+    <div id="page-team" class="page">
+        <button class="nav-btn" style="margin-bottom:16px" onclick="showPage('search')">← Zurück</button>
+        <div id="team-title" class="section-title"></div>
+        <div class="liga-pills">
+            <div class="pill active" onclick="loadTeamMatches('SCHEDULED', this)">Nächste Spiele</div>
+            <div class="pill" onclick="loadTeamMatches('FINISHED', this)">Letzte Spiele</div>
+            <div class="pill" onclick="loadTeamMatches('LIVE', this)">Live</div>
+        </div>
+        <div id="team-content"><div class="loading">Lade Spiele...</div></div>
+    </div>
+
+</div>
+
+<script>
+    let currentTeamId = null;
+
+    function showPage(page) {
+        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+        document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+        document.getElementById('page-' + page).classList.add('active');
+
+        const btns = {'live': 0, 'today': 1, 'standings': 2, 'search': 3};
+        if (btns[page] !== undefined) {
+            document.querySelectorAll('.nav-btn')[btns[page]].classList.add('active');
+        }
+
+        if (page === 'live') loadLive();
+        if (page === 'today') loadToday();
+        if (page === 'standings') loadStandings('PL', document.querySelector('.liga-pills .pill'));
+    }
+
+    function renderMatches(matches, containerId) {
+        const el = document.getElementById(containerId);
+        if (!matches || matches.length === 0) {
+            el.innerHTML = '<div class="empty">Keine Spiele gefunden</div>';
+            return;
+        }
+        el.innerHTML = matches.map(m => `
+            <div class="match-card">
+                <div class="team-home">
+                    <div class="team-name">${m.homeTeam.name}</div>
+                </div>
+                <div class="score-box">
+                    <div class="score">
+                        ${m.score.fullTime.home ?? '-'} : ${m.score.fullTime.away ?? '-'}
+                    </div>
+                    <div class="match-status">
+                        ${m.status === 'IN_PLAY' ? '<span class="live-badge">LIVE</span>' : new Date(m.utcDate).toLocaleString('de-CH', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'})}
+                    </div>
+                </div>
+                <div class="team-away">
+                    <div class="team-name">${m.awayTeam.name}</div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function loadLive() {
+        document.getElementById('live-content').innerHTML = '<div class="loading">Lade Live Spiele...</div>';
+        try {
+            const res = await fetch('/api/football/live');
+            const data = await res.json();
+            renderMatches(data, 'live-content');
+        } catch(e) {
+            document.getElementById('live-content').innerHTML = '<div class="empty">Fehler beim Laden</div>';
+        }
+    }
+
+    async function loadToday() {
+        document.getElementById('today-content').innerHTML = '<div class="loading">Lade Spiele...</div>';
+        try {
+            const res = await fetch('/api/football/today');
+            const data = await res.json();
+            renderMatches(data, 'today-content');
+        } catch(e) {
+            document.getElementById('today-content').innerHTML = '<div class="empty">Fehler beim Laden</div>';
+        }
+    }
+
+    async function loadStandings(leagueId, el) {
+        document.querySelectorAll('.liga-pills .pill').forEach(p => p.classList.remove('active'));
+        if (el) el.classList.add('active');
+        document.getElementById('standings-content').innerHTML = '<div class="loading">Lade Tabelle...</div>';
+        try {
+            const res = await fetch('/api/football/standings/' + leagueId);
+            const data = await res.json();
+            const table = data.standings.find(s => s.type === 'TOTAL')?.table || [];
+            document.getElementById('standings-content').innerHTML = `
+                <table class="standings-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Team</th>
+                            <th>Sp</th>
+                            <th>S</th>
+                            <th>U</th>
+                            <th>N</th>
+                            <th>Tore</th>
+                            <th>Pkt</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${table.map(t => `
+                            <tr>
+                                <td class="pos">${t.position}</td>
+                                <td>
+                                    <img class="team-crest" src="${t.team.crest}" onerror="this.style.display='none'"/>
+                                    ${t.team.name}
+                                </td>
+                                <td>${t.playedGames}</td>
+                                <td>${t.won}</td>
+                                <td>${t.draw}</td>
+                                <td>${t.lost}</td>
+                                <td>${t.goalsFor}:${t.goalsAgainst}</td>
+                                <td class="points">${t.points}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        } catch(e) {
+            document.getElementById('standings-content').innerHTML = '<div class="empty">Fehler beim Laden</div>';
+        }
+    }
+
+    async function searchTeam() {
+        const name = document.getElementById('search-input').value.trim();
+        if (!name) return;
+        document.getElementById('search-content').innerHTML = '<div class="loading">Suche...</div>';
+        try {
+            const res = await fetch('/api/football/teams/search?name=' + encodeURIComponent(name));
+            const data = await res.json();
+            if (!data.teams || data.teams.length === 0) {
+                document.getElementById('search-content').innerHTML = '<div class="empty">Kein Team gefunden</div>';
+                return;
+            }
+            document.getElementById('search-content').innerHTML = data.teams.map(t => `
+                <div class="team-card" onclick="openTeam(${t.id}, '${t.name.replace(/'/g, "\\'")}')">
+                    <img class="team-crest-big" src="${t.crest}" onerror="this.style.display='none'"/>
+                    <div class="team-info">
+                        <h3>${t.name}</h3>
+                        <p>${t.venue || ''} ${t.founded ? '· Gegründet ' + t.founded : ''}</p>
+                        <p>${t.clubColors || ''}</p>
+                    </div>
+                </div>
+            `).join('');
+        } catch(e) {
+            document.getElementById('search-content').innerHTML = '<div class="empty">Fehler beim Laden</div>';
+        }
+    }
+
+    function openTeam(id, name) {
+        currentTeamId = id;
+        document.getElementById('team-title').textContent = name;
+        showPage('team');
+        loadTeamMatches('SCHEDULED', document.querySelector('#page-team .liga-pills .pill'));
+    }
+
+    async function loadTeamMatches(status, el) {
+        document.querySelectorAll('#page-team .liga-pills .pill').forEach(p => p.classList.remove('active'));
+        if (el) el.classList.add('active');
+        document.getElementById('team-content').innerHTML = '<div class="loading">Lade Spiele...</div>';
+        try {
+            const res = await fetch(`/api/football/teams/${currentTeamId}/matches?status=${status}`);
+            const data = await res.json();
+            renderMatches(data, 'team-content');
+        } catch(e) {
+            document.getElementById('team-content').innerHTML = '<div class="empty">Fehler beim Laden</div>';
+        }
+    }
+
+    // Initial load
+    loadLive();
+</script>
+</body>
+</html>
