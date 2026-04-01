@@ -5,7 +5,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 @ApplicationScoped
 public class FuzzySearchService {
 
-    // Berechnet wie ähnlich zwei Strings sind (0.0 - 1.0)
     public double similarity(String a, String b) {
         a = a.toLowerCase().trim();
         b = b.toLowerCase().trim();
@@ -13,10 +12,8 @@ public class FuzzySearchService {
         if (a.equals(b)) return 1.0;
         if (a.isEmpty() || b.isEmpty()) return 0.0;
 
-        // Enthält-Check (z.B. "bayer" findet "Bayern München")
         if (b.contains(a) || a.contains(b)) return 0.9;
 
-        // Levenshtein Distanz
         int distance = levenshtein(a, b);
         int maxLen = Math.max(a.length(), b.length());
         return 1.0 - ((double) distance / maxLen);
@@ -34,7 +31,7 @@ public class FuzzySearchService {
                     dp[i][j] = dp[i-1][j-1];
                 } else {
                     dp[i][j] = 1 + Math.min(dp[i-1][j-1],
-                                   Math.min(dp[i-1][j], dp[i][j-1]));
+                            Math.min(dp[i-1][j], dp[i][j-1]));
                 }
             }
         }

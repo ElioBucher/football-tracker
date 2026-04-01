@@ -11,6 +11,7 @@ public class StandingsResponse {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Competition {
         public String name;
+        public String emblem;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -31,6 +32,7 @@ public class StandingsResponse {
         public int goalsFor;
         public int goalsAgainst;
         public int goalDifference;
+        public String form;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
