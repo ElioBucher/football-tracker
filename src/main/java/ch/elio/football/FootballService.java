@@ -12,10 +12,15 @@ import jakarta.inject.Inject;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.stream.Collectors;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 @ApplicationScoped
 public class FootballService {
@@ -23,12 +28,21 @@ public class FootballService {
     @ConfigProperty(name = "football.api.key")
     String apiKey;
 
-    @Inject
-    @RestClient
-    FootballClient footballClient;
+    private final FootballClient footballClient;
+    private final FuzzySearchService fuzzySearch;
+
+    private static final List<String> SEARCH_COMPETITIONS = List.of("PL", "BL1", "SA", "PD", "FL1", "CL");
+    private static final long SEARCH_POOL_TTL_MS = 5L * 60 * 1000;
+
+    private final Object searchPoolLock = new Object();
+    private final AtomicReference<List<TeamResponse.Team>> cachedCompetitionTeams = new AtomicReference<>(List.of());
+    private final AtomicLong competitionTeamsCacheUntilMs = new AtomicLong(0L);
 
     @Inject
-    FuzzySearchService fuzzySearch;
+    public FootballService(@RestClient FootballClient footballClient, FuzzySearchService fuzzySearch) {
+        this.footballClient = footballClient;
+        this.fuzzySearch = fuzzySearch;
+    }
 
     public List<Match> getLiveMatches() {
         try {
@@ -83,64 +97,190 @@ public class FootballService {
             return List.of();
         }
 
-        String queryTrimmed = query.trim();
-        String queryLower = queryTrimmed.toLowerCase();
+        String queryNormalized = normalize(query);
+        Map<Integer, TeamResponse.Team> apiCandidates = new LinkedHashMap<>();
 
-        // Schritt 1: API-seitige Suche mit dem Suchbegriff — liefert bereits gefilterte Treffer
-        List<TeamResponse.Team> apiResults = new ArrayList<>();
+        // Primarweg: direkte API-Suche
         try {
-            TeamResponse response = footballClient.searchTeams(apiKey, queryTrimmed);
+            TeamResponse response = footballClient.searchTeams(apiKey, query.trim());
             if (response != null && response.teams != null) {
-                apiResults.addAll(response.teams);
-            }
-        } catch (Exception e) {
-            // API-Fehler: mit leerer Liste weiterarbeiten
-        }
-
-        // Schritt 2: Falls API keine oder wenige Ergebnisse zurückgibt (z.B. bei Tippfehlern),
-        // Fallback auf Fuzzy-Suche über alle verfügbaren Teams
-        if (apiResults.size() < 3) {
-            try {
-                TeamResponse allTeams = footballClient.searchTeams(apiKey, "");
-                if (allTeams != null && allTeams.teams != null) {
-                    List<TeamResponse.Team> fuzzyResults = allTeams.teams.stream()
-                            .filter(t -> {
-                                if (t.name == null) return false;
-                                String nameLower = t.name.toLowerCase();
-                                String shortLower = t.shortName != null ? t.shortName.toLowerCase() : "";
-                                double sim = Math.max(
-                                        fuzzySearch.similarity(queryLower, nameLower),
-                                        fuzzySearch.similarity(queryLower, shortLower)
-                                );
-                                return sim >= 0.35;
-                            })
-                            .collect(Collectors.toList());
-
-                    // Zusammenführen: API-Ergebnisse zuerst, Fuzzy-Treffer hinzufügen wenn noch nicht enthalten
-                    for (TeamResponse.Team fuzzyTeam : fuzzyResults) {
-                        boolean alreadyPresent = apiResults.stream().anyMatch(t -> t.id == fuzzyTeam.id);
-                        if (!alreadyPresent) {
-                            apiResults.add(fuzzyTeam);
-                        }
+                for (TeamResponse.Team team : response.teams) {
+                    if (team != null) {
+                        apiCandidates.putIfAbsent(team.id, team);
                     }
                 }
-            } catch (Exception e) {
-                // Fuzzy-Fallback fehlgeschlagen — mit API-Ergebnissen weiterfahren
+            }
+        } catch (Exception ignored) {
+            // Bei API-Problemen nutzen wir den gecachten Wettbewerbs-Pool.
+        }
+
+        List<ScoredTeam> scoredApi = scoreTeams(apiCandidates.values(), queryNormalized);
+        List<TeamResponse.Team> strongApi = scoredApi.stream()
+                .filter(t -> t.score >= 0.58)
+                .limit(10)
+                .map(t -> t.team)
+                .toList();
+
+        // Wenn API bereits gute Treffer liefert, keine breite Pool-Mischung erzwingen.
+        if (strongApi.size() >= 3) {
+            return strongApi;
+        }
+
+        Map<Integer, TeamResponse.Team> allCandidates = new LinkedHashMap<>(apiCandidates);
+        for (TeamResponse.Team team : loadCompetitionTeamsPoolCached()) {
+            allCandidates.putIfAbsent(team.id, team);
+        }
+
+        List<ScoredTeam> scoredAll = scoreTeams(allCandidates.values(), queryNormalized);
+        if (scoredAll.isEmpty()) {
+            return List.of();
+        }
+
+        double bestScore = scoredAll.get(0).score;
+        double dynamicThreshold = Math.max(0.62, bestScore - 0.20);
+
+        return scoredAll.stream()
+                .filter(t -> t.score >= dynamicThreshold)
+                .limit(10)
+                .map(t -> t.team)
+                .toList();
+    }
+
+    private List<ScoredTeam> scoreTeams(Iterable<TeamResponse.Team> teams, String queryNormalized) {
+        List<ScoredTeam> scored = new ArrayList<>();
+        for (TeamResponse.Team team : teams) {
+            double score = relevanceScore(queryNormalized, team);
+            if (score > 0) {
+                scored.add(new ScoredTeam(team, score));
             }
         }
 
-        // Schritt 3: Sortieren nach Relevanz (beste Übereinstimmung zuerst)
-        return apiResults.stream()
-                .sorted(Comparator.comparingDouble((TeamResponse.Team t) -> {
-                    String nameLower = t.name != null ? t.name.toLowerCase() : "";
-                    String shortLower = t.shortName != null ? t.shortName.toLowerCase() : "";
-                    return -Math.max(
-                            fuzzySearch.similarity(queryLower, nameLower),
-                            fuzzySearch.similarity(queryLower, shortLower)
-                    );
-                }))
-                .limit(10)
-                .collect(Collectors.toList());
+        scored.sort(Comparator.comparingDouble((ScoredTeam t) -> t.score).reversed());
+        return scored;
+    }
+
+    private double relevanceScore(String queryNormalized, TeamResponse.Team team) {
+        if (team == null) {
+            return 0.0;
+        }
+
+        String nameNormalized = normalize(team.name);
+        String shortNormalized = normalize(team.shortName);
+
+        if (nameNormalized.equals(queryNormalized) || shortNormalized.equals(queryNormalized)) {
+            return 1.0;
+        }
+
+        if (startsWithToken(nameNormalized, queryNormalized) || startsWithToken(shortNormalized, queryNormalized)) {
+            return 0.97;
+        }
+
+        if (nameNormalized.contains(queryNormalized) || shortNormalized.contains(queryNormalized)) {
+            return 0.92;
+        }
+
+        double fuzzyName = similarityWithLengthPenalty(queryNormalized, nameNormalized);
+        double fuzzyShort = similarityWithLengthPenalty(queryNormalized, shortNormalized);
+        return Math.max(fuzzyName, fuzzyShort);
+    }
+
+    private double similarityWithLengthPenalty(String query, String target) {
+        if (target == null || target.isBlank()) {
+            return 0.0;
+        }
+
+        double base = fuzzySearch.similarity(query, target);
+        int min = Math.min(query.length(), target.length());
+        int max = Math.max(query.length(), target.length());
+        double ratio = max == 0 ? 0.0 : (double) min / max;
+        return base * (0.55 + (0.45 * ratio));
+    }
+
+    private boolean startsWithToken(String target, String query) {
+        if (target == null || target.isBlank() || query == null || query.isBlank()) {
+            return false;
+        }
+
+        for (String token : target.split("[^a-z0-9]+")) {
+            if (!token.isEmpty() && token.startsWith(query)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static final class ScoredTeam {
+        private final TeamResponse.Team team;
+        private final double score;
+
+        private ScoredTeam(TeamResponse.Team team, double score) {
+            this.team = team;
+            this.score = score;
+        }
+    }
+
+    private List<TeamResponse.Team> loadCompetitionTeamsPoolCached() {
+        long now = System.currentTimeMillis();
+        List<TeamResponse.Team> snapshot = cachedCompetitionTeams.get();
+        if (now < competitionTeamsCacheUntilMs.get() && !snapshot.isEmpty()) {
+            return snapshot;
+        }
+
+        synchronized (searchPoolLock) {
+            now = System.currentTimeMillis();
+            snapshot = cachedCompetitionTeams.get();
+            if (now < competitionTeamsCacheUntilMs.get() && !snapshot.isEmpty()) {
+                return snapshot;
+            }
+
+            List<TeamResponse.Team> refreshed = loadCompetitionTeamsPool();
+            if (!refreshed.isEmpty()) {
+                cachedCompetitionTeams.set(List.copyOf(refreshed));
+                competitionTeamsCacheUntilMs.set(now + SEARCH_POOL_TTL_MS);
+            }
+            return cachedCompetitionTeams.get();
+        }
+    }
+
+    private List<TeamResponse.Team> loadCompetitionTeamsPool() {
+        Map<Integer, TeamResponse.Team> uniqueTeams = new LinkedHashMap<>();
+
+        for (String competitionId : SEARCH_COMPETITIONS) {
+            try {
+                TeamResponse response = footballClient.getCompetitionTeams(apiKey, competitionId);
+                if (response == null || response.teams == null) {
+                    continue;
+                }
+
+                for (TeamResponse.Team team : response.teams) {
+                    if (team != null) {
+                        uniqueTeams.putIfAbsent(team.id, team);
+                    }
+                }
+            } catch (Exception ignored) {
+                // Einzelne Liga kann fehlschlagen; vorhandene Ergebnisse bleiben nutzbar.
+            }
+        }
+
+        return new ArrayList<>(uniqueTeams.values());
+    }
+
+
+    private String normalize(String value) {
+        if (value == null) {
+            return "";
+        }
+
+        String lowered = value.toLowerCase(Locale.ROOT).trim();
+        String umlautSafe = lowered
+                .replace("ä", "ae")
+                .replace("ö", "oe")
+                .replace("ü", "ue")
+                .replace("ß", "ss");
+
+        return Normalizer.normalize(umlautSafe, Normalizer.Form.NFD)
+                .replaceAll("\\p{M}", "")
+                .replaceAll("\\s+", " ");
     }
 
     public TeamDetailResponse getTeamDetail(int teamId) {
