@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Football Tracker</title>
+    <link rel="icon" href="favicon-16x16.png">
+    <link rel="shortcut icon" href="favicon-16x16.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Boldonse&display=swap" rel="stylesheet">
@@ -22,6 +24,7 @@
             <button class="nav-btn" onclick="showPage('standings')">Tabelle</button>
             <button class="nav-btn" onclick="showPage('scorers')">Torjäger</button>
             <button class="nav-btn" onclick="showPage('search')">Suche</button>
+            <button class="nav-btn" onclick="showPage('favorites')">Favoriten</button>
         </div>
         <button class="theme-toggle" onclick="toggleTheme()" title="Dark/Light Mode">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
@@ -91,6 +94,13 @@
         </div>
         <div id="search-content"></div>
     </div>
+
+    <!-- FAV PAGE -->
+    <div id="page-favorites" class="page">
+        <h1 class="section-title">Favoriten</h1>
+        <div id="favorites-page-section"></div>
+    </div>
+
 
     <!-- TEAM PAGE -->
     <div id="page-team" class="page">
