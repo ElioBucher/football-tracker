@@ -2,19 +2,35 @@ let currentTeamId = null;
 let currentTeamData = null;
 let liveRefreshInterval = null;
 let refreshCountdown = 60;
-let favorites = JSON.parse(localStorage.getItem('football-favorites') || '[]');
+let favorites = [];
+
+async function initFavorites() {
+    try {
+        favorites = JSON.parse(localStorage.getItem('football-favorites') || '[]');
+    } catch {
+        favorites = [];
+    }
+}
 
 const teamRegistry = new Map();
 
 function registerTeam(id, name, crest) {
-    teamRegistry.set(id, { id, name, crest: crest || '' });
+    teamRegistry.set(id, {id, name, crest: crest || ''});
 }
 
 function getTeam(id) {
-    return teamRegistry.get(id) || { id, name: String(id), crest: '' };
+    const fromRegistry = teamRegistry.get(id);
+    if (fromRegistry) return fromRegistry;
+
+    const fromFavorite = favorites.find(f => f.id === id);
+    if (fromFavorite) {
+        registerTeam(fromFavorite.id, fromFavorite.name, fromFavorite.crest);
+        return teamRegistry.get(id);
+    }
+    return {id, name: 'Unbekanntes Team', crest: ''};
 }
 
-function toggleTheme() {
+async function toggleTheme() {
     const isDark = document.body.classList.toggle('dark');
     localStorage.setItem('football-theme', isDark ? 'dark' : 'light');
     updateThemeIcon();
@@ -29,30 +45,46 @@ function updateThemeIcon() {
         : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`;
 }
 
-if (localStorage.getItem('football-theme') === 'dark') document.body.classList.add('dark');
-updateThemeIcon();
-
 function showPage(page) {
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
     document.getElementById('page-' + page).classList.add('active');
 
-    const map = { live: 0, today: 1, standings: 2, scorers: 3, search: 4 };
-    if (map[page] !== undefined) {
-        document.querySelectorAll('.nav-btn')[map[page]].classList.add('active');
+    const navIndex = {live: 0, today: 1, standings: 2, scorers: 3, search: 4, favorites: 5};
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    if (navIndex[page] !== undefined) {
+        const btn = document.querySelectorAll('.nav-btn')[navIndex[page]];
+        if (btn) btn.classList.add('active');
     }
 
-    clearInterval(liveRefreshInterval);
-    document.getElementById('refresh-countdown').textContent = '';
+    if (liveRefreshInterval) {
+        clearInterval(liveRefreshInterval);
+        liveRefreshInterval = null;
+    }
 
     if (page === 'live') {
         loadLive();
         startLiveRefresh();
+    } else if (page === 'today') {
+        loadToday();
+    } else if (page === 'standings') {
+        const first = document.querySelector('#standings-pills .pill.active') || document.querySelector('#standings-pills .pill');
+        loadStandings('PL', first);
+    } else if (page === 'scorers') {
+        const first = document.querySelector('#scorers-pills .pill.active') || document.querySelector('#scorers-pills .pill');
+        loadScorers('PL', first);
+    } else if (page === 'search') {
+        renderFavorites();
+    } else if (page === 'favorites') {
+        renderFavorites();
     }
-    if (page === 'today') loadToday();
-    if (page === 'standings') loadStandings('PL', document.querySelector('#standings-pills .pill'));
-    if (page === 'scorers') loadScorers('PL', document.querySelector('#scorers-pills .pill'));
-    if (page === 'search') renderFavorites();
+}
+
+async function favoriteTeam() {
+    if (!currentTeamId) return;
+    const name = currentTeamData?.name || getTeam(currentTeamId).name || String(currentTeamId);
+    const crest = currentTeamData?.crest || getTeam(currentTeamId).crest || '';
+    toggleFavorite(currentTeamId, name, crest);
 }
 
 function startLiveRefresh() {
@@ -343,14 +375,13 @@ function openTeamById(id) {
     openTeam(team.id, team.name, team.crest);
 }
 
-function toggleFavorite(id, name, crest) {
+async function toggleFavorite(id, name, crest) {
     const idx = favorites.findIndex(f => f.id === id);
     if (idx >= 0) {
         favorites.splice(idx, 1);
     } else {
-        favorites.push({ id, name, crest });
+        favorites.push({id, name, crest});
     }
-
     localStorage.setItem('football-favorites', JSON.stringify(favorites));
     registerTeam(id, name, crest);
     renderFavorites();
@@ -363,41 +394,50 @@ function isFavorite(id) {
 
 function updateFavButton(id) {
     const btn = document.getElementById('fav-btn-' + id);
-    if (btn) {
-        btn.classList.toggle('is-fav', isFavorite(id));
-        btn.textContent = isFavorite(id) ? 'Gespeichert' : 'Speichern';
-    }
+    if (!btn) return;
+
+    const fav = isFavorite(id);
+    btn.classList.toggle('is-fav', fav);
+    btn.textContent = fav ? 'Favorit' : 'Favorisieren';
 }
 
 function renderFavorites() {
-    const sec = document.getElementById('favorites-section');
-    if (!favorites.length) {
-        sec.innerHTML = '';
-        return;
-    }
-
-    favorites.forEach(f => registerTeam(f.id, f.name, f.crest));
-
-    sec.innerHTML = `
-        <div class="favorites-label">Gespeicherte Teams</div>
-        <div class="favorites-bar">
-            ${favorites.map(f => `
-                <div class="fav-chip" onclick="openTeamById(${f.id})">
-                    <img src="${f.crest || ''}" onerror="this.style.display='none'"/>
-                    ${f.name}
-                    <span class="fav-remove" onclick="event.stopPropagation();toggleFavorite(${f.id}, ${JSON.stringify(f.name)}, ${JSON.stringify(f.crest || '')})">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-                    </span>
-                </div>
-            `).join('')}
-        </div>
-    `;
+    ['favorites-section', 'favorites-page-section'].forEach(secId => {
+        const sec = document.getElementById(secId);
+        if (!sec) return;
+        if (!favorites.length) {
+            sec.innerHTML = '<div class="empty">Keine Favoriten gespeichert.</div>';
+            return;
+        }
+        favorites.forEach(f => registerTeam(f.id, f.name, f.crest));
+        sec.innerHTML = `
+            <div class="favorites-label">Gespeicherte Teams</div>
+            <div class="favorites-bar">
+                ${favorites.map(f => {
+            const safeName = f.name.replace(/'/g, "\\'");
+            const safeCrest = (f.crest || '').replace(/'/g, "\\'");
+            return `
+                        <div class="fav-chip" onclick="openTeamById(${f.id})">
+                            <img src="${f.crest || ''}" onerror="this.style.display='none'"/>
+                            ${f.name}
+                            <span class="fav-remove" onclick="event.stopPropagation();toggleFavorite(${f.id}, '${safeName}', '${safeCrest}')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </span>
+                        </div>
+                    `;
+        }).join('')}
+            </div>
+        `;
+    });
 }
 
 async function openTeam(id, name, crest) {
     currentTeamId = id;
     registerTeam(id, name, crest);
     const isFav = isFavorite(id);
+
+    const safeName = name.replace(/'/g, "\\'");
+    const safeCrest = (crest || '').replace(/'/g, "\\'");
 
     document.getElementById('team-header').innerHTML = `
         <div class="team-detail-header">
@@ -406,7 +446,7 @@ async function openTeam(id, name, crest) {
                 <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px">
                     <h2>${name}</h2>
                     <button id="fav-btn-${id}" class="fav-action-btn ${isFav ? 'is-fav' : ''}"
-                        onclick="toggleFavorite(${id}, ${JSON.stringify(name)}, ${JSON.stringify(crest || '')})">
+                        onclick="toggleFavorite(${id}, '${safeName}', '${safeCrest}')">
                         ${isFav ? 'Gespeichert' : 'Speichern'}
                     </button>
                 </div>
@@ -576,5 +616,11 @@ function closeModal(event) {
     }
 }
 
-loadLive();
-startLiveRefresh();
+(async () => {
+    await initFavorites();
+    if (localStorage.getItem('football-theme') === 'dark') {
+        document.body.classList.add('dark');
+    }
+    updateThemeIcon();
+    showPage('today');
+})();
