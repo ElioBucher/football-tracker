@@ -327,7 +327,7 @@ async function loadScorers(leagueId, el) {
                 </div>
                 <div style="text-align:right">
                     <div class="scorer-goals">${s.goals ?? 0}</div>
-                    <div class="scorer-assists">${s.assists ?? 0} Vorlagen</div>
+                    <div class="scorer-assists">${(s.assists == 1) ? Vorlage : Vorlagen}</div>
                 </div>
             </div>
         `).join('');
@@ -447,7 +447,7 @@ async function openTeam(id, name, crest) {
                     <h2>${name}</h2>
                     <button id="fav-btn-${id}" class="fav-action-btn ${isFav ? 'is-fav' : ''}"
                         onclick="toggleFavorite(${id}, '${safeName}', '${safeCrest}')">
-                        ${isFav ? 'Gespeichert' : 'Speichern'}
+                        ${isFav ? 'Favorit' : 'Favorisieren'}
                     </button>
                 </div>
                 <div class="team-detail-meta" id="team-detail-meta">Lade Details…</div>
